@@ -1,1193 +1,153 @@
-/* ==========================================================================
-   APEX STOCK TRADING PLATFORM - CORE APPLICATION JS
-   Single Page Application Architecture, API Polling, Real-Time Charting
-   ========================================================================== */
+// Global Application State
+let currentSelectedSymbol = "TSLA"; // Default selected stock
+let stockDataMap = {}; // Tracks live stock objects by symbol {AAPL: {...}}
+let previousStockPrices = {}; // For up/down tick animations {AAPL: 175.50}
+let currentActiveTab = "stock-chart"; // "stock-chart" or "portfolio-chart"
+let mainChart = null; // Chart.js instance
+let liveInterval = null;
+let currentCashOperation = "DEPOSIT"; // "DEPOSIT" or "WITHDRAW"
 
-const API_BASE = "";
+// Game Achievement States
+const ACHIEVEMENTS = [
+    { id: "first_trade", title: "Stonks Pioneer", desc: "Execute your very first buy or sell trade", icon: "fa-solid fa-rocket", unlocked: false },
+    { id: "paper_millionaire", title: "Paper Millionaire", desc: "Increase your net worth to over $15,000", icon: "fa-solid fa-crown", unlocked: false },
+    { id: "risk_taker", title: "Fully Invested", desc: "Reduce your cash balance below $500", icon: "fa-solid fa-fire", unlocked: false },
+    { id: "whale", title: "Whale Investor", desc: "Own more than 100 shares of a single stock", icon: "fa-solid fa-fish-fins", unlocked: false }
+];
 
-// Global App State
-const state = {
-    isAuthenticated: false,
-    user: null,
-    stocks: [],
-    watchlist: [],
-    currentView: "dashboard",
-    selectedStock: null,
-    tradeMode: "BUY", // BUY or SELL
-    portfolioData: null,
-    sectors: new Set(),
-    activeFilterSector: "ALL",
-    marketSearchQuery: ""
-};
-
-// Global Chart References
-let allocationChart = null;
-let stockChart = null;
-
-// Polling interval IDs
-let marketPollingInterval = null;
-let portfolioPollingInterval = null;
-let notificationPollingInterval = null;
-
-// ==========================================================================
-//  STARTUP & INITIALIZATION
-// ==========================================================================
+// App Init
 document.addEventListener("DOMContentLoaded", () => {
-    checkAuthStatus();
+    initApp();
 });
 
-// Check if user is logged in
-async function checkAuthStatus() {
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/status`);
-        const data = await res.json();
-        
-        if (data.authenticated) {
-            state.isAuthenticated = true;
-            state.user = data.user;
-            setupAppSession();
-        } else {
-            showAuthScreen();
-        }
-    } catch (err) {
-        console.error("Auth status check failed", err);
-        showAuthScreen();
-    }
-}
-
-// Show login screen
-function showAuthScreen() {
-    state.isAuthenticated = false;
-    document.getElementById("welcome-screen").classList.remove("hidden");
-    document.getElementById("app-dashboard").classList.add("hidden");
-    clearPolling();
-}
-
-// Setup user app dashboard session
-function setupAppSession() {
-    document.getElementById("welcome-screen").classList.add("hidden");
-    document.getElementById("app-dashboard").classList.remove("hidden");
+function initApp() {
+    setupEventListeners();
+    setupCharts();
     
-    // Set static UI values
-    document.getElementById("username-display").textContent = state.user.username;
-    document.getElementById("user-tier-display").textContent = `${state.user.tier} Tier`;
-    
-    // Fetch initial data
-    fetchMarketData();
-    fetchPortfolioData();
-    fetchWatchlist();
-    
-    // Start real-time background polling
-    startPolling();
-    
-    // Switch to default dashboard overview
-    switchView("dashboard");
-}
-
-// Start polling
-function startPolling() {
-    clearPolling(); // prevent duplicates
-    
-    // Poll market every 3 seconds
-    marketPollingInterval = setInterval(fetchMarketData, 3000);
-    // Poll portfolio every 3 seconds
-    portfolioPollingInterval = setInterval(fetchPortfolioData, 3000);
-    // Poll real-time transaction notifications every 3 seconds
-    notificationPollingInterval = setInterval(fetchNotifications, 3000);
-}
-
-// Clear polling
-function clearPolling() {
-    if (marketPollingInterval) clearInterval(marketPollingInterval);
-    if (portfolioPollingInterval) clearInterval(portfolioPollingInterval);
-    if (notificationPollingInterval) clearInterval(notificationPollingInterval);
-}
-
-// ==========================================================================
-//  DATA FETCHING / API WRAPPERS
-// ==========================================================================
-
-// Fetch all stocks
-async function fetchMarketData() {
-    try {
-        const res = await fetch(`${API_BASE}/api/market/stocks`);
-        const data = await res.json();
-        state.stocks = data.stocks;
-        
-        // Populate unique sectors list
-        state.sectors.clear();
-        state.stocks.forEach(s => state.sectors.add(s.sector));
-        
-        // Update live index headers
-        updateIndexHeader(data.marketIndex, data.sentiment);
-        
-        // Dynamically refresh active list rendering
-        if (state.currentView === "dashboard") {
-            renderDashboardGainersLosers();
-        } else if (state.currentView === "market") {
-            renderMarketStocks();
-        }
-        
-        // If stock quote modal is currently open, refresh its price details
-        if (state.selectedStock) {
-            const freshStock = state.stocks.find(s => s.symbol === state.selectedStock.symbol);
-            if (freshStock) {
-                state.selectedStock = freshStock;
-                updateStockModalUI();
-            }
-        }
-    } catch (err) {
-        console.error("Error fetching market data", err);
-    }
-}
-
-// Fetch user portfolio balances & positions
-async function fetchPortfolioData() {
-    if (!state.isAuthenticated) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/portfolio`);
-        const data = await res.json();
-        state.portfolioData = data;
-        
-        // Refresh values on UI components
-        updatePortfolioBalances();
-        
-        if (state.currentView === "portfolio") {
-            renderPortfolioView();
-        }
-        
-        // Update modal balance if open
-        if (state.selectedStock) {
-            document.getElementById("trade-user-capital").textContent = `Cash Available: $${formatMoney(data.cashBalance)}`;
-            const holding = data.holdings.find(h => h.symbol === state.selectedStock.symbol);
-            document.getElementById("trade-user-shares").textContent = `Shares Owned: ${holding ? holding.quantity : 0}`;
-        }
-    } catch (err) {
-        console.error("Error fetching portfolio data", err);
-    }
-}
-
-// Fetch user watchlist
-async function fetchWatchlist() {
-    if (!state.isAuthenticated) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/watchlist`);
-        const data = await res.json();
-        state.watchlist = data.symbols;
-        
-        if (state.currentView === "dashboard") {
-            renderWatchlist();
-        }
-    } catch (err) {
-        console.error("Error fetching watchlist", err);
-    }
-}
-
-// Fetch background notification triggers
-async function fetchNotifications() {
-    if (!state.isAuthenticated) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/notifications`);
-        const data = await res.json();
-        if (data.notifications && data.notifications.length > 0) {
-            data.notifications.forEach(msg => {
-                showToast(msg, "info");
-                // Refresh data to show changes
-                fetchPortfolioData();
-                fetchWatchlist();
-            });
-        }
-    } catch (err) {
-        console.error("Error fetching notifications", err);
-    }
-}
-
-// ==========================================================================
-//  ROUTING / VIEW HANDLING
-// ==========================================================================
-function switchView(viewName) {
-    state.currentView = viewName;
-    
-    // Toggle nav active classes
-    document.querySelectorAll(".nav-item").forEach(btn => {
-        btn.classList.remove("active");
-    });
-    
-    // Find active nav item based on click or match
-    const activeBtn = Array.from(document.querySelectorAll(".nav-item")).find(btn => 
-        btn.getAttribute("onclick").includes(`'${viewName}'`)
-    );
-    if (activeBtn) activeBtn.classList.add("active");
-    
-    // Hide all view sections
-    document.querySelectorAll(".content-view").forEach(view => {
-        view.classList.add("hidden");
-    });
-    
-    // Unhide current view
-    const viewSection = document.getElementById(`view-${viewName}`);
-    if (viewSection) viewSection.classList.remove("hidden");
-    
-    // Set title
-    const titles = {
-        dashboard: "Dashboard Overview",
-        market: "Market Terminal",
-        portfolio: "My Portfolio",
-        transactions: "Transaction History Log",
-        leaderboard: "Apex Trader Leaderboard",
-        alerts: "Alerts & Limit Orders Suite",
-        settings: "Account Suite & Settings"
-    };
-    document.getElementById("view-title").textContent = titles[viewName] || "Platform Suite";
-    
-    // Render specific views on entering
-    if (viewName === "dashboard") {
-        renderWatchlist();
-        renderDashboardGainersLosers();
-        renderSectorDonutChart();
-    } else if (viewName === "market") {
-        renderSectorFilters();
-        renderMarketStocks();
-    } else if (viewName === "portfolio") {
-        renderPortfolioView();
-    } else if (viewName === "transactions") {
-        renderTransactionsHistory();
-    } else if (viewName === "leaderboard") {
-        renderLeaderboard();
-    } else if (viewName === "alerts") {
-        renderAlertsAndOrders();
-    } else if (viewName === "settings") {
-        updateSettingsViewUI();
-    }
-}
-
-// Toggle Auth Screen Tabs
-function switchAuthTab(tabType) {
-    document.querySelectorAll(".auth-tab").forEach(tab => {
-        tab.classList.remove("active");
-    });
-    document.querySelectorAll(".auth-form").forEach(form => {
-        form.classList.remove("active");
-    });
-    
-    if (tabType === "login") {
-        document.querySelector(".auth-tabs button:first-child").classList.add("active");
-        document.getElementById("login-form").classList.add("active");
-    } else {
-        document.querySelector(".auth-tabs button:last-child").classList.add("active");
-        document.getElementById("register-form").classList.add("active");
-    }
-}
-
-// ==========================================================================
-//  VIEW RENDERING UTILITIES
-// ==========================================================================
-
-// Live header index tape
-function updateIndexHeader(indexVal, sentiment) {
-    document.getElementById("header-market-index").textContent = `$${formatMoney(indexVal)}`;
-    
-    const changeBadge = document.getElementById("header-market-change");
-    const sentimentPct = sentiment * 100;
-    
-    changeBadge.textContent = `${sentimentPct >= 0 ? "+" : ""}${sentimentPct.toFixed(2)}%`;
-    if (sentimentPct >= 0) {
-        changeBadge.className = "index-change positive";
-    } else {
-        changeBadge.className = "index-change negative";
-    }
-}
-
-// Dashboard metrics cards
-function updatePortfolioBalances() {
-    if (!state.portfolioData) return;
-    const data = state.portfolioData;
-    
-    // Dashboard views
-    document.getElementById("dash-total-value").textContent = `$${formatMoney(data.totalValue)}`;
-    document.getElementById("dash-cash-balance").textContent = `$${formatMoney(data.cashBalance)}`;
-    
-    const dashPnL = document.getElementById("dash-unrealized-pnl");
-    dashPnL.textContent = `${data.unrealizedPnL >= 0 ? "+" : ""}$${formatMoney(data.unrealizedPnL)}`;
-    const dashCard = document.getElementById("dash-pnl-card");
-    if (data.unrealizedPnL >= 0) {
-        dashCard.className = "metric-card green-gradient";
-        dashPnL.className = "text-green";
-    } else {
-        dashCard.className = "metric-card red-gradient";
-        dashPnL.className = "text-red";
-    }
-    
-    const dashReturn = document.getElementById("dash-total-return");
-    dashReturn.textContent = `${data.totalReturnPct >= 0 ? "+" : ""}${data.totalReturnPct.toFixed(2)}%`;
-}
-
-// Watchlist renderer
-function renderWatchlist() {
-    const tbody = document.getElementById("watchlist-body");
-    tbody.innerHTML = "";
-    
-    const watchedStocks = state.stocks.filter(s => state.watchlist.includes(s.symbol));
-    
-    if (watchedStocks.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="text-center">Your watchlist is empty. Visit the Market Terminal to add stocks!</td></tr>`;
-        return;
-    }
-    
-    watchedStocks.forEach(s => {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td><span class="stock-symbol-badge">${s.symbol}</span></td>
-            <td><strong>$${formatMoney(s.currentPrice)}</strong></td>
-            <td class="${s.dayChangePercent >= 0 ? 'text-green' : 'text-red'}">
-                <strong>${s.dayChangePercent >= 0 ? '▲' : '▼'} ${s.dayChangePercent.toFixed(2)}%</strong>
-            </td>
-            <td>
-                <button class="btn btn-sm btn-outline" onclick="openStockModal('${s.symbol}')">Trade</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// Dashboard Top Gainers & Losers list rendering
-function renderDashboardGainersLosers() {
-    const gainersList = document.getElementById("dash-top-gainers");
-    const losersList = document.getElementById("dash-top-losers");
-    
-    gainersList.innerHTML = "";
-    losersList.innerHTML = "";
-    
-    // Sort stocks
-    const sortedStocks = [...state.stocks];
-    const gainers = [...sortedStocks].sort((a, b) => b.dayChangePercent - a.dayChangePercent).slice(0, 5);
-    const losers = [...sortedStocks].sort((a, b) => a.dayChangePercent - b.dayChangePercent).slice(0, 5);
-    
-    gainers.forEach(s => {
-        const li = document.createElement("li");
-        li.className = "market-list-item";
-        li.onclick = () => openStockModal(s.symbol);
-        li.innerHTML = `
-            <div class="mli-left">
-                <span class="mli-symbol">${s.symbol}</span>
-                <span class="mli-name">${s.companyName}</span>
-            </div>
-            <div class="mli-right">
-                <span class="mli-price">$${formatMoney(s.currentPrice)}</span>
-                <span class="mli-change text-green">▲ ${s.dayChangePercent.toFixed(2)}%</span>
-            </div>
-        `;
-        gainersList.appendChild(li);
+    // Initial fetch
+    refreshAllData().then(() => {
+        // Select default stock in UI
+        selectStock(currentSelectedSymbol);
     });
 
-    losers.forEach(s => {
-        const li = document.createElement("li");
-        li.className = "market-list-item";
-        li.onclick = () => openStockModal(s.symbol);
-        li.innerHTML = `
-            <div class="mli-left">
-                <span class="mli-symbol">${s.symbol}</span>
-                <span class="mli-name">${s.companyName}</span>
-            </div>
-            <div class="mli-right">
-                <span class="mli-price">$${formatMoney(s.currentPrice)}</span>
-                <span class="mli-change text-red">▼ ${s.dayChangePercent.toFixed(2)}%</span>
-            </div>
-        `;
-        losersList.appendChild(li);
-    });
+    // Start live updates polling (every 1.5 seconds for extremely active responsive simulation)
+    liveInterval = setInterval(refreshAllData, 1500);
 }
 
-// Sector donut chart
-function renderSectorDonutChart() {
-    const canvas = document.getElementById("allocationDonutChart");
-    const emptyMsg = document.getElementById("allocation-empty-msg");
+// 1. Event Listeners setups
+function setupEventListeners() {
+    // Reset simulation button
+    document.getElementById("btn-reset").addEventListener("click", () => {
+        if (confirm("Are you sure you want to reset the simulation? All history, custom stocks, and cash will go back to initial default state ($10,000).")) {
+            fetch("/api/reset", { method: "POST" })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert("Account reset complete!");
+                        refreshAllData().then(() => {
+                            selectStock("TSLA");
+                        });
+                    }
+                });
+        }
+    });
+
+    // Quantity Input handler
+    const qtyInput = document.getElementById("trade-quantity");
+    qtyInput.addEventListener("input", updateTradeEstimate);
+    qtyInput.addEventListener("change", updateTradeEstimate);
+
+    // Trade Execution Buttons
+    document.getElementById("btn-buy").addEventListener("click", () => executeTrade("BUY"));
+    document.getElementById("btn-sell").addEventListener("click", () => executeTrade("SELL"));
+
+    // Chart toggle tabs
+    document.getElementById("tab-stock-chart").addEventListener("click", (e) => {
+        switchChartTab("stock-chart");
+    });
+    document.getElementById("tab-portfolio-chart").addEventListener("click", (e) => {
+        switchChartTab("portfolio-chart");
+    });
+
+    // Deposit & Withdraw cash clicks
+    document.getElementById("btn-open-deposit").addEventListener("click", () => openCashModal("DEPOSIT"));
+    document.getElementById("btn-open-withdraw").addEventListener("click", () => openCashModal("WITHDRAW"));
     
-    if (!state.portfolioData || Object.keys(state.portfolioData.allocation).length === 0) {
-        canvas.style.display = "none";
-        emptyMsg.classList.remove("hidden");
-        return;
-    }
+    // Close cash modal
+    document.getElementById("btn-close-modal").addEventListener("click", closeCashModal);
     
-    canvas.style.display = "block";
-    emptyMsg.classList.add("hidden");
+    // Confirm cash operation
+    document.getElementById("btn-modal-confirm").addEventListener("click", executeCashOperation);
+
+    // List new custom stock
+    document.getElementById("btn-list-stock").addEventListener("click", submitCustomStock);
+}
+
+// 2. Chart Rendering Service
+function setupCharts() {
+    const ctx = document.getElementById("mainChart").getContext("2d");
     
-    const labels = Object.keys(state.portfolioData.allocation);
-    const dataVals = Object.values(state.portfolioData.allocation);
-    
-    if (allocationChart) {
-        allocationChart.destroy();
-    }
-    
-    allocationChart = new Chart(canvas, {
-        type: "doughnut",
+    // Create modern Chart.js line graph with custom gradient fills
+    mainChart = new Chart(ctx, {
+        type: 'line',
         data: {
-            labels: labels,
+            labels: [],
             datasets: [{
-                data: dataVals,
-                backgroundColor: [
-                    "hsl(210, 100%, 55%)",
-                    "hsl(265, 80%, 65%)",
-                    "hsl(150, 80%, 45%)",
-                    "hsl(42, 90%, 55%)",
-                    "hsl(270, 75%, 60%)",
-                    "hsl(190, 90%, 50%)",
-                    "hsl(345, 80%, 55%)"
-                ],
-                borderWidth: 1,
-                borderColor: "rgba(30, 41, 59, 0.8)"
+                label: 'Price',
+                data: [],
+                borderColor: '#6366f1',
+                borderWidth: 2.5,
+                pointBackgroundColor: '#8b5cf6',
+                pointBorderColor: '#ffffff',
+                pointBorderWidth: 1.5,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                tension: 0.25,
+                fill: true,
+                backgroundColor: function(context) {
+                    const chart = context.chart;
+                    const {ctx, chartArea} = chart;
+                    if (!chartArea) return null;
+                    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.35)');
+                    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+                    return gradient;
+                }
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    position: "right",
-                    labels: {
-                        color: "hsl(220, 10%, 75%)",
-                        font: { family: "Outfit", size: 12 }
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                    titleFont: { family: 'Plus Jakarta Sans', weight: 'bold' },
+                    bodyFont: { family: 'Plus Jakarta Sans' },
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            return `Value: $${context.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                        }
                     }
                 }
-            }
-        }
-    });
-}
-
-// ==========================================================================
-//  MARKET TERMINAL VIEWS & FILTERS
-// ==========================================================================
-
-// Sector tabs
-function renderSectorFilters() {
-    const tabBox = document.getElementById("sector-filter-tabs");
-    tabBox.innerHTML = `<button class="sector-tab ${state.activeFilterSector === 'ALL' ? 'active' : ''}" onclick="filterMarketSector('ALL')">All Sectors</button>`;
-    
-    Array.from(state.sectors).sort().forEach(sec => {
-        const btn = document.createElement("button");
-        btn.className = `sector-tab ${state.activeFilterSector === sec ? 'active' : ''}`;
-        btn.onclick = () => filterMarketSector(sec);
-        btn.textContent = sec;
-        tabBox.appendChild(btn);
-    });
-}
-
-function filterMarketSector(sector) {
-    state.activeFilterSector = sector;
-    renderSectorFilters();
-    renderMarketStocks();
-}
-
-function handleMarketSearch() {
-    state.marketSearchQuery = document.getElementById("market-search").value.toLowerCase();
-    renderMarketStocks();
-}
-
-// Active securities list
-function renderMarketStocks() {
-    const tbody = document.getElementById("market-stocks-body");
-    tbody.innerHTML = "";
-    
-    let filtered = state.stocks;
-    
-    // Sector filter
-    if (state.activeFilterSector !== "ALL") {
-        filtered = filtered.filter(s => s.sector === state.activeFilterSector);
-    }
-    
-    // Search query filter
-    if (state.marketSearchQuery) {
-        filtered = filtered.filter(s => 
-            s.symbol.toLowerCase().includes(state.marketSearchQuery) ||
-            s.companyName.toLowerCase().includes(state.marketSearchQuery) ||
-            s.sector.toLowerCase().includes(state.marketSearchQuery)
-        );
-    }
-    
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center">No active stocks match the filters.</td></tr>`;
-        return;
-    }
-    
-    filtered.forEach(s => {
-        const isWatched = state.watchlist.includes(s.symbol);
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td><span class="stock-symbol-badge">${s.symbol}</span></td>
-            <td><strong>${s.companyName}</strong></td>
-            <td>${s.sector}</td>
-            <td class="text-right"><strong>$${formatMoney(s.currentPrice)}</strong></td>
-            <td class="text-right ${s.dayChangeAmount >= 0 ? 'text-green' : 'text-red'}">
-                <strong>${s.dayChangeAmount >= 0 ? '+' : ''}${s.dayChangeAmount.toFixed(2)}</strong>
-            </td>
-            <td class="text-right ${s.dayChangePercent >= 0 ? 'text-green' : 'text-red'}">
-                <strong>${s.dayChangePercent >= 0 ? '▲' : '▼'} ${s.dayChangePercent.toFixed(2)}%</strong>
-            </td>
-            <td class="text-right text-muted">${formatVolume(s.volume)}</td>
-            <td class="text-center">
-                <div style="display: flex; justify-content: center; gap: 8px;">
-                    <button class="btn btn-sm btn-outline" onclick="openStockModal('${s.symbol}')">Quote & Trade</button>
-                    <button class="btn btn-sm btn-outline ${isWatched ? 'text-green' : ''}" onclick="toggleWatchlistAPI('${s.symbol}', this)" style="padding: 6px 8px;">
-                        <i class="bx ${isWatched ? 'bxs-star text-gold' : 'bx-star'}"></i>
-                    </button>
-                </div>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// Watchlist API addition/removal
-async function toggleWatchlistAPI(symbol, element) {
-    const isWatched = state.watchlist.includes(symbol);
-    const apiRoute = isWatched ? "remove" : "add";
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/watchlist/${apiRoute}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbol: symbol })
-        });
-        const data = await res.json();
-        
-        if (data.success) {
-            showToast(`${symbol} ${isWatched ? 'removed from' : 'added to'} watchlist.`, "success");
-            fetchWatchlist();
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Watchlist API error", err);
-    }
-}
-
-// ==========================================================================
-//  PORTFOLIO VIEW
-// ==========================================================================
-function renderPortfolioView() {
-    if (!state.portfolioData) return;
-    const data = state.portfolioData;
-    
-    // Update headers
-    document.getElementById("port-total-value").textContent = `$${formatMoney(data.totalValue)}`;
-    document.getElementById("port-stock-value").textContent = `$${formatMoney(data.stockValue)}`;
-    document.getElementById("port-realized-pnl").textContent = `$${formatMoney(data.realizedPnL)}`;
-    
-    const portPnL = document.getElementById("port-unrealized-pnl");
-    portPnL.textContent = `${data.unrealizedPnL >= 0 ? "+" : ""}$${formatMoney(data.unrealizedPnL)} (${data.unrealizedPnLPct.toFixed(2)}%)`;
-    const portCard = document.getElementById("port-pnl-card");
-    if (data.unrealizedPnL >= 0) {
-        portCard.className = "metric-card green-gradient";
-        portPnL.className = "text-green";
-    } else {
-        portCard.className = "metric-card red-gradient";
-        portPnL.className = "text-red";
-    }
-    
-    document.getElementById("portfolio-rating").textContent = `Rating: ${data.rating}`;
-    
-    // Holdings table
-    const tbody = document.getElementById("portfolio-holdings-body");
-    tbody.innerHTML = "";
-    
-    if (data.holdings.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center">You don't own any shares. Visit the Market Terminal to build your portfolio!</td></tr>`;
-        return;
-    }
-    
-    data.holdings.forEach(h => {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td><span class="stock-symbol-badge">${h.symbol}</span></td>
-            <td><strong>${h.companyName}</strong></td>
-            <td class="text-right">${h.quantity}</td>
-            <td class="text-right">$${formatMoney(h.avgCost)}</td>
-            <td class="text-right">$${formatMoney(h.currentPrice)}</td>
-            <td class="text-right"><strong>$${formatMoney(h.currentValue)}</strong></td>
-            <td class="text-right ${h.unrealizedPnL >= 0 ? 'text-green' : 'text-red'}">
-                <strong>${h.unrealizedPnL >= 0 ? '+' : ''}${h.unrealizedPnLPct.toFixed(2)}%</strong>
-            </td>
-            <td class="text-center">
-                <button class="btn btn-sm btn-outline" onclick="openStockModal('${h.symbol}')">Trade</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// ==========================================================================
-//  TRANSACTIONS & EXPORT
-// ==========================================================================
-async function renderTransactionsHistory() {
-    try {
-        const res = await fetch(`${API_BASE}/api/transactions`);
-        const data = await res.json();
-        
-        document.getElementById("tx-commission-total").textContent = `Commission Paid: $${formatMoney(data.totalCommission)}`;
-        
-        const tbody = document.getElementById("transactions-log-body");
-        tbody.innerHTML = "";
-        
-        if (data.transactions.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center">No trades logged yet.</td></tr>`;
-            return;
-        }
-        
-        data.transactions.forEach(t => {
-            const isBuy = t.type === "BUY";
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td><small>${t.transactionId}</small></td>
-                <td><small>${t.timestamp}</small></td>
-                <td><span class="stock-symbol-badge">${t.symbol}</span></td>
-                <td class="${isBuy ? 'text-green' : 'text-red'}"><strong>${t.type} (${t.orderType})</strong></td>
-                <td class="text-right">${t.quantity}</td>
-                <td class="text-right">$${formatMoney(t.pricePerShare)}</td>
-                <td class="text-right text-muted">$${formatMoney(t.commission)}</td>
-                <td class="text-right"><strong>$${formatMoney(t.totalAmount)}</strong></td>
-                <td class="text-right ${t.profitLoss >= 0 ? 'text-green' : 'text-red'}">
-                    <strong>${!isBuy ? (t.profitLoss >= 0 ? '+' : '') + formatMoney(t.profitLoss) : '—'}</strong>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (err) {
-        console.error("Error fetching transactions", err);
-    }
-}
-
-// Export account metrics
-async function triggerAccountAction(actionType) {
-    try {
-        const res = await fetch(`${API_BASE}/api/account/${actionType}`, { method: "POST" });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error(`Export ${actionType} error`, err);
-    }
-}
-
-// ==========================================================================
-//  LEADERBOARD
-// ==========================================================================
-async function renderLeaderboard() {
-    try {
-        const res = await fetch(`${API_BASE}/api/leaderboard`);
-        const data = await res.json();
-        const board = data.leaderboard;
-        
-        // Populate Podium
-        const podiumData = [...board].slice(0, 3);
-        
-        // 1st place
-        if (podiumData[0]) {
-            document.getElementById("podium-1-user").textContent = podiumData[0].username;
-            document.getElementById("podium-1-val").textContent = `$${formatMoney(podiumData[0].totalValue)}`;
-        } else {
-            document.getElementById("podium-1-user").textContent = "No User";
-            document.getElementById("podium-1-val").textContent = "$0.00";
-        }
-        
-        // 2nd place
-        if (podiumData[1]) {
-            document.getElementById("podium-2-user").textContent = podiumData[1].username;
-            document.getElementById("podium-2-val").textContent = `$${formatMoney(podiumData[1].totalValue)}`;
-        } else {
-            document.getElementById("podium-2-user").textContent = "No User";
-            document.getElementById("podium-2-val").textContent = "$0.00";
-        }
-
-        // 3rd place
-        if (podiumData[2]) {
-            document.getElementById("podium-3-user").textContent = podiumData[2].username;
-            document.getElementById("podium-3-val").textContent = `$${formatMoney(podiumData[2].totalValue)}`;
-        } else {
-            document.getElementById("podium-3-user").textContent = "No User";
-            document.getElementById("podium-3-val").textContent = "$0.00";
-        }
-        
-        // List table
-        const tbody = document.getElementById("leaderboard-body");
-        tbody.innerHTML = "";
-        
-        board.forEach((u, i) => {
-            const row = document.createElement("tr");
-            const highlight = state.user && u.username === state.user.username ? 'style="background: rgba(234,179,8,0.06); border-left: 3px solid var(--gold)"' : '';
-            
-            row.innerHTML = `
-                <td ${highlight}><strong>#${i + 1}</strong></td>
-                <td ${highlight}><strong>${u.username}</strong></td>
-                <td ${highlight} class="text-accent">${u.tier}</td>
-                <td ${highlight} class="text-right"><strong>$${formatMoney(u.totalValue)}</strong></td>
-                <td ${highlight} class="text-right ${u.netPnL >= 0 ? 'text-green' : 'text-red'}">
-                    <strong>${u.netPnL >= 0 ? '+' : ''}${formatMoney(u.netPnL)}</strong>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (err) {
-        console.error("Leaderboard error", err);
-    }
-}
-
-// ==========================================================================
-//  ALERTS & LIMIT ORDERS VIEWS
-// ==========================================================================
-async function renderAlertsAndOrders() {
-    // Fill option lists with active securities
-    const alertSel = document.getElementById("alert-symbol");
-    const orderSel = document.getElementById("order-symbol");
-    
-    alertSel.innerHTML = '<option value="" disabled selected>Symbol</option>';
-    orderSel.innerHTML = '<option value="" disabled selected>Symbol</option>';
-    
-    state.stocks.forEach(s => {
-        const opt1 = `<option value="${s.symbol}">${s.symbol} ($${s.currentPrice})</option>`;
-        const opt2 = `<option value="${s.symbol}">${s.symbol} ($${s.currentPrice})</option>`;
-        alertSel.insertAdjacentHTML("beforeend", opt1);
-        orderSel.insertAdjacentHTML("beforeend", opt2);
-    });
-    
-    fetchActiveAlerts();
-    fetchPendingOrders();
-}
-
-async function fetchActiveAlerts() {
-    try {
-        const res = await fetch(`${API_BASE}/api/alerts`);
-        const data = await res.json();
-        
-        const tbody = document.getElementById("alerts-list-body");
-        tbody.innerHTML = "";
-        
-        if (data.alerts.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" class="text-center">No active price alerts set.</td></tr>`;
-            return;
-        }
-        
-        data.alerts.forEach(a => {
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td><span class="stock-symbol-badge">${a.symbol}</span></td>
-                <td><strong>${a.alertType === "ABOVE" ? 'Above (▲)' : 'Below (▼)'}</strong></td>
-                <td class="text-right"><strong>$${formatMoney(a.targetPrice)}</strong></td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-logout" onclick="handleCancelAlert('${a.alertId}')">Cancel</button>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (err) {
-        console.error("Alerts fetching error", err);
-    }
-}
-
-async function handleCreateAlert(e) {
-    e.preventDefault();
-    const symbol = document.getElementById("alert-symbol").value;
-    const type = document.getElementById("alert-type").value;
-    const targetPrice = parseFloat(document.getElementById("alert-price").value);
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/alerts/create`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbol, type, targetPrice })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            fetchActiveAlerts();
-            document.getElementById("create-alert-form").reset();
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Create alert error", err);
-    }
-}
-
-async function handleCancelAlert(alertId) {
-    try {
-        const res = await fetch(`${API_BASE}/api/alerts/cancel`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ alertId })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            fetchActiveAlerts();
-        }
-    } catch (err) {
-        console.error("Cancel alert error", err);
-    }
-}
-
-async function fetchPendingOrders() {
-    try {
-        const res = await fetch(`${API_BASE}/api/orders`);
-        const data = await res.json();
-        
-        const tbody = document.getElementById("orders-list-body");
-        tbody.innerHTML = "";
-        
-        if (data.orders.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center">No pending limit orders.</td></tr>`;
-            return;
-        }
-        
-        data.orders.forEach(o => {
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td><span class="stock-symbol-badge">${o.symbol}</span></td>
-                <td class="${o.type === 'BUY' ? 'text-green' : 'text-red'}"><strong>LIMIT ${o.type}</strong></td>
-                <td class="text-right">${o.quantity}</td>
-                <td class="text-right"><strong>$${formatMoney(o.limitPrice)}</strong></td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-logout" onclick="handleCancelOrder('${o.orderId}')">Cancel</button>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (err) {
-        console.error("Pending orders fetching error", err);
-    }
-}
-
-async function handlePlaceLimitOrder(e) {
-    e.preventDefault();
-    const symbol = document.getElementById("order-symbol").value;
-    const type = document.getElementById("order-type").value;
-    const qty = parseInt(document.getElementById("order-qty").value);
-    const limitPrice = parseFloat(document.getElementById("order-price").value);
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/orders/place`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbol, type, qty, limitPrice })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            fetchPendingOrders();
-            document.getElementById("place-order-form").reset();
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Place limit order error", err);
-    }
-}
-
-async function handleCancelOrder(orderId) {
-    try {
-        const res = await fetch(`${API_BASE}/api/orders/cancel`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ orderId })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            fetchPendingOrders();
-        }
-    } catch (err) {
-        console.error("Cancel order error", err);
-    }
-}
-
-// ==========================================================================
-//  ACCOUNT SETTINGS OPERATIONS
-// ==========================================================================
-function updateSettingsViewUI() {
-    if (!state.portfolioData) return;
-    document.getElementById("settings-cash-balance").textContent = `$${formatMoney(state.portfolioData.cashBalance)}`;
-}
-
-async function handleDeposit(e) {
-    e.preventDefault();
-    const amount = parseFloat(document.getElementById("deposit-amount").value);
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/account/deposit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ amount })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            document.getElementById("deposit-amount").value = "";
-            fetchPortfolioData();
-            setTimeout(updateSettingsViewUI, 200);
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Deposit funds error", err);
-    }
-}
-
-async function handleWithdraw(e) {
-    e.preventDefault();
-    const amount = parseFloat(document.getElementById("withdraw-amount").value);
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/account/withdraw`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ amount })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            document.getElementById("withdraw-amount").value = "";
-            fetchPortfolioData();
-            setTimeout(updateSettingsViewUI, 200);
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Withdraw funds error", err);
-    }
-}
-
-async function handleChangePassword(e) {
-    e.preventDefault();
-    const oldPassword = document.getElementById("old-password").value;
-    const newPassword = document.getElementById("new-password").value;
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/account/password`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ oldPassword, newPassword })
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, "success");
-            document.getElementById("old-password").value = "";
-            document.getElementById("new-password").value = "";
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Password change error", err);
-    }
-}
-
-// ==========================================================================
-//  STOCK TERMINAL QUOTES & TRADING MODAL
-// ==========================================================================
-async function openStockModal(symbol) {
-    const stock = state.stocks.find(s => s.symbol === symbol);
-    if (!stock) return;
-    
-    state.selectedStock = stock;
-    state.tradeMode = "BUY";
-    
-    // Clear trade quantity inputs
-    document.getElementById("trade-quantity").value = "";
-    document.getElementById("trade-est-cost").textContent = "$0.00";
-    document.getElementById("trade-total-est").textContent = "$0.00";
-    
-    // Select default active BUY tab
-    document.querySelectorAll(".trade-tab").forEach(t => t.classList.remove("active"));
-    document.querySelector(".trade-panel-tabs button:first-child").classList.add("active");
-    
-    // Open panel
-    document.getElementById("stock-modal").classList.remove("hidden");
-    
-    // Populate layout
-    updateStockModalUI();
-    
-    // Load historical tick graph
-    renderStockTrendChart(stock);
-}
-
-function closeStockModal() {
-    document.getElementById("stock-modal").classList.add("hidden");
-    state.selectedStock = null;
-    if (stockChart) {
-        stockChart.destroy();
-        stockChart = null;
-    }
-}
-
-function updateStockModalUI() {
-    const s = state.selectedStock;
-    if (!s) return;
-    
-    document.getElementById("modal-stock-symbol").textContent = s.symbol;
-    document.getElementById("modal-stock-name").textContent = s.companyName;
-    document.getElementById("modal-stock-price").textContent = `$${formatMoney(s.currentPrice)}`;
-    
-    const changeSpan = document.getElementById("modal-stock-change");
-    changeSpan.textContent = `${s.dayChangeAmount >= 0 ? '+' : ''}${s.dayChangeAmount.toFixed(2)} (${s.dayChangePercent >= 0 ? '+' : ''}${s.dayChangePercent.toFixed(2)}%)`;
-    if (s.dayChangePercent >= 0) {
-        changeSpan.className = "positive text-green";
-    } else {
-        changeSpan.className = "negative text-red";
-    }
-    
-    // Stats grid
-    document.getElementById("mstat-open").textContent = `$${formatMoney(s.openPrice)}`;
-    document.getElementById("mstat-close").textContent = `$${formatMoney(s.previousClose)}`;
-    document.getElementById("mstat-low").textContent = `$${formatMoney(s.dayLow)}`;
-    document.getElementById("mstat-high").textContent = `$${formatMoney(s.dayHigh)}`;
-    document.getElementById("mstat-ylow").textContent = `$${formatMoney(s.yearLow)}`;
-    document.getElementById("mstat-yhigh").textContent = `$${formatMoney(s.yearHigh)}`;
-    document.getElementById("mstat-vol").textContent = formatVolume(s.volume);
-    document.getElementById("mstat-cap").textContent = formatMarketCap(s.marketCap);
-    document.getElementById("mstat-pe").textContent = s.peRatio.toFixed(1);
-    document.getElementById("mstat-div").textContent = `${s.dividendYield.toFixed(2)}%`;
-    
-    // Watched visual toggle
-    const wlBtn = document.getElementById("btn-modal-watchlist");
-    const isWatched = state.watchlist.includes(s.symbol);
-    if (isWatched) {
-        wlBtn.className = "btn btn-block btn-outline btn-watchlist-toggle added";
-        wlBtn.innerHTML = `<i class="bx bxs-star text-gold"></i> Remove from Watchlist`;
-    } else {
-        wlBtn.className = "btn btn-block btn-outline btn-watchlist-toggle";
-        wlBtn.innerHTML = `<i class="bx bx-star"></i> Add to Watchlist`;
-    }
-    
-    // User portfolio position stats
-    if (state.portfolioData) {
-        document.getElementById("trade-user-capital").textContent = `Cash Available: $${formatMoney(state.portfolioData.cashBalance)}`;
-        const holding = state.portfolioData.holdings.find(h => h.symbol === s.symbol);
-        document.getElementById("trade-user-shares").textContent = `Shares Owned: ${holding ? holding.quantity : 0}`;
-    }
-}
-
-// Switch between BUY and SELL modes in modal
-function switchTradeMode(mode) {
-    state.tradeMode = mode;
-    document.querySelectorAll(".trade-tab").forEach(t => t.classList.remove("active"));
-    
-    if (mode === "BUY") {
-        document.querySelector(".trade-panel-tabs button:first-child").classList.add("active");
-        document.getElementById("btn-execute-trade").className = "btn btn-primary btn-block";
-        document.getElementById("btn-execute-trade").textContent = "Confirm Purchase";
-    } else {
-        document.querySelector(".trade-panel-tabs button:last-child").classList.add("active");
-        document.getElementById("btn-execute-trade").className = "btn btn-secondary btn-block";
-        document.getElementById("btn-execute-trade").textContent = "Confirm Liquidation";
-    }
-    calculateTradeTotal();
-}
-
-// Real-time cost calculations
-function calculateTradeTotal() {
-    const qty = parseInt(document.getElementById("trade-quantity").value) || 0;
-    const price = state.selectedStock ? state.selectedStock.currentPrice : 0;
-    
-    const cost = qty * price;
-    const commission = qty > 0 ? 1.00 : 0.00; // Flat $1.00 mock brokerage
-    const total = cost + (state.tradeMode === "BUY" ? commission : -commission);
-    
-    document.getElementById("trade-est-cost").textContent = `$${formatMoney(cost)}`;
-    document.getElementById("trade-est-commission").textContent = `$${formatMoney(commission)}`;
-    document.getElementById("trade-total-est").textContent = `$${formatMoney(Math.max(0, total))}`;
-}
-
-async function handleExecuteTrade(e) {
-    e.preventDefault();
-    const qty = parseInt(document.getElementById("trade-quantity").value) || 0;
-    if (qty <= 0) {
-        showToast("Please enter a valid quantity of shares.", "error");
-        return;
-    }
-    
-    const symbol = state.selectedStock.symbol;
-    const type = state.tradeMode;
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/trade`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbol, type, qty })
-        });
-        const data = await res.json();
-        
-        if (data.success) {
-            showToast(data.message, "success");
-            fetchPortfolioData();
-            setTimeout(closeStockModal, 300);
-        } else {
-            showToast(data.message, "error");
-        }
-    } catch (err) {
-        console.error("Execute trade error", err);
-    }
-}
-
-function toggleWatchlistModal() {
-    if (state.selectedStock) {
-        toggleWatchlistAPI(state.selectedStock.symbol, null);
-    }
-}
-
-// Render historical Chart.js tick chart
-function renderStockTrendChart(stock) {
-    const canvas = document.getElementById("stockTrendChart");
-    
-    // Extract history labels and data points
-    const history = stock.history || [];
-    const labels = history.map(h => h.time);
-    const dataVals = history.map(h => h.price);
-    
-    if (stockChart) {
-        stockChart.destroy();
-    }
-    
-    const borderGradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, 250);
-    borderGradient.addColorStop(0, stock.dayChangePercent >= 0 ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)");
-    borderGradient.addColorStop(1, "rgba(30, 41, 59, 0)");
-
-    stockChart = new Chart(canvas, {
-        type: "line",
-        data: {
-            labels: labels,
-            datasets: [{
-                label: "Share Price ($)",
-                data: dataVals,
-                borderColor: stock.dayChangePercent >= 0 ? "hsl(150, 80%, 45%)" : "hsl(345, 80%, 55%)",
-                backgroundColor: borderGradient,
-                fill: true,
-                borderWidth: 2,
-                tension: 0.25,
-                pointRadius: history.length > 20 ? 0 : 2,
-                pointHoverRadius: 5
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
             },
             scales: {
                 x: {
-                    grid: { color: "rgba(255,255,255,0.03)" },
-                    ticks: {
-                        color: "rgba(255,255,255,0.4)",
-                        font: { family: "Outfit", size: 10 },
-                        maxTicksLimit: 6
-                    }
+                    grid: { display: false },
+                    ticks: { display: false }
                 },
                 y: {
-                    grid: { color: "rgba(255,255,255,0.03)" },
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
                     ticks: {
-                        color: "rgba(255,255,255,0.4)",
-                        font: { family: "Outfit", size: 10 }
+                        color: '#94a3b8',
+                        font: { family: 'Plus Jakarta Sans', size: 10 },
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
                     }
                 }
             }
@@ -1195,125 +155,639 @@ function renderStockTrendChart(stock) {
     });
 }
 
-// ==========================================================================
-//  AUTH ACTIONS
-// ==========================================================================
-async function handleLogin(e) {
-    e.preventDefault();
-    const username = document.getElementById("login-username").value;
-    const password = document.getElementById("login-password").value;
-    
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        
-        if (data.success) {
-            showToast(data.message, "success");
-            state.isAuthenticated = true;
-            state.user = data.user;
-            setupAppSession();
-        } else {
-            showToast(data.message, "error");
+// 3. Tab Toggling
+function switchChartTab(tabId) {
+    if (currentActiveTab === tabId) return;
+    currentActiveTab = tabId;
+
+    document.getElementById("tab-stock-chart").classList.toggle("active", tabId === "stock-chart");
+    document.getElementById("tab-portfolio-chart").classList.toggle("active", tabId === "portfolio-chart");
+
+    if (tabId === "stock-chart") {
+        document.getElementById("chart-main-title").innerText = "Market Analysis";
+        if (currentSelectedSymbol) {
+            document.getElementById("chart-subtitle").innerText = `${currentSelectedSymbol} Price History`;
         }
-    } catch (err) {
-        showToast("Incorrect username or security password.", "error");
-        console.error("Login err", err);
+    } else {
+        document.getElementById("chart-main-title").innerText = "Portfolio Performance";
+        document.getElementById("chart-subtitle").innerText = "Total Net Worth History";
     }
+
+    updateChartData();
 }
 
-async function handleRegister(e) {
-    e.preventDefault();
-    const username = document.getElementById("reg-username").value;
-    const email = document.getElementById("reg-email").value;
-    const password = document.getElementById("reg-password").value;
-    const deposit = parseFloat(document.getElementById("reg-deposit").value) || 0;
-    
+// 4. Global Data Fetch Loop
+async function refreshAllData() {
     try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, email, password, deposit })
-        });
-        const data = await res.json();
+        // Fetch Parallel Data streams to reduce latency
+        const [stocksRes, portfolioRes, newsRes, txRes] = await Promise.all([
+            fetch("/api/stocks").then(r => r.json()),
+            fetch("/api/portfolio").then(r => r.json()),
+            fetch("/api/news").then(r => r.json()),
+            fetch("/api/transactions").then(r => r.json())
+        ]);
+
+        updateStocksMap(stocksRes);
+        renderWatchlist();
+        renderPortfolioSummary(portfolioRes);
+        renderHoldings(portfolioRes.holdings);
+        renderNews(newsRes);
+        renderTransactions(txRes);
+        checkAchievements(portfolioRes, txRes);
         
-        if (data.success) {
-            showToast(data.message, "success");
-            state.isAuthenticated = true;
-            state.user = data.user;
-            setupAppSession();
-        } else {
-            showToast(data.message, "error");
+        // Auto-select fallback if Trade Ticket is uninitialized but stocks data is ready
+        const tradeTickerEl = document.getElementById("trade-ticker");
+        if (tradeTickerEl && (tradeTickerEl.innerText === "SELECT ASSET" || tradeTickerEl.innerText.trim() === "") && stocksRes.length > 0) {
+            const defaultSymbol = stocksRes.some(s => s.symbol === currentSelectedSymbol) ? currentSelectedSymbol : stocksRes[0].symbol;
+            selectStock(defaultSymbol);
         }
+
+        // Update Chart ticks in real time
+        updateChartData();
+        updateTradeEstimate();
+
     } catch (err) {
-        showToast("Unable to process account registration details.", "error");
-        console.error("Register err", err);
+        console.error("Error refreshing simulation APIs:", err);
     }
 }
 
-async function handleLogout() {
-    try {
-        await fetch(`${API_BASE}/api/auth/logout`, { method: "POST" });
-        showToast("Session disconnected. Goodbye!", "info");
-        state.user = null;
-        showAuthScreen();
-    } catch (err) {
-        console.error("Logout error", err);
+// Update local stocks map
+function updateStocksMap(stocksList) {
+    stocksList.forEach(stock => {
+        // Save previous price before updating to calculate tick directions
+        if (stockDataMap[stock.symbol]) {
+            previousStockPrices[stock.symbol] = stockDataMap[stock.symbol].currentPrice;
+        } else {
+            previousStockPrices[stock.symbol] = stock.currentPrice;
+        }
+        stockDataMap[stock.symbol] = stock;
+    });
+}
+
+// 5. Render Watchlist Stock Cards
+function renderWatchlist() {
+    const container = document.getElementById("watchlist-container");
+    const activeSymbol = currentSelectedSymbol;
+
+    // Create cards dynamically
+    let html = "";
+    Object.values(stockDataMap).forEach(stock => {
+        const symbol = stock.symbol;
+        const prevPrice = previousStockPrices[symbol] || stock.currentPrice;
+        const priceDiff = stock.currentPrice - prevPrice;
+
+        // Ticking class flash indicator
+        let tickClass = "";
+        if (priceDiff > 0.01) {
+            tickClass = "tick-up";
+        } else if (priceDiff < -0.01) {
+            tickClass = "tick-down";
+        }
+
+        const isSelected = symbol === activeSymbol ? "selected" : "";
+        const changeSign = stock.changePercent >= 0 ? "+" : "";
+        const changeClass = stock.changePercent >= 0 ? "positive" : "negative";
+
+        html += `
+            <div class="watchlist-row ${isSelected} ${tickClass}" onclick="selectStock('${symbol}')" id="watch-${symbol}">
+                <div class="watchlist-asset">
+                    <span class="watchlist-symbol">${symbol}</span>
+                    <span class="watchlist-name">${stock.name}</span>
+                </div>
+                <div class="watchlist-pricing">
+                    <span class="watchlist-price">$${stock.currentPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                    <span class="watchlist-change ${changeClass}">${changeSign}${stock.changePercent.toFixed(2)}%</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// 6. Select Stock to view/trade
+function selectStock(symbol) {
+    currentSelectedSymbol = symbol;
+    const stock = stockDataMap[symbol];
+    if (!stock) return;
+
+    // Mark row selected
+    document.querySelectorAll(".watchlist-row").forEach(row => {
+        row.classList.remove("selected");
+    });
+    const selectedRow = document.getElementById(`watch-${symbol}`);
+    if (selectedRow) selectedRow.classList.add("selected");
+
+    // Update ticket display
+    document.getElementById("trade-ticker").innerText = stock.symbol;
+    document.getElementById("trade-company").innerText = stock.name;
+    document.getElementById("trade-price").innerText = `$${stock.currentPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+    if (currentActiveTab === "stock-chart") {
+        document.getElementById("chart-subtitle").innerText = `${stock.symbol} Price History`;
+    }
+
+    updateChartData();
+    updateTradeEstimate();
+}
+
+// 7. Dynamic Trade Cost estimation & button state triggers
+function updateTradeEstimate() {
+    const stock = stockDataMap[currentSelectedSymbol];
+    if (!stock) {
+        document.getElementById("btn-buy").disabled = true;
+        document.getElementById("btn-sell").disabled = true;
+        return;
+    }
+
+    const qtyInput = document.getElementById("trade-quantity");
+    let qty = parseInt(qtyInput.value);
+
+    if (isNaN(qty) || qty <= 0) {
+        qty = 0;
+    }
+
+    const estimate = qty * stock.currentPrice;
+    document.getElementById("trade-estimate").innerText = `$${estimate.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+    // Get current portfolio cash and user shares
+    const cashStr = document.getElementById("cash-balance").innerText.replace(/[^0-9.]/g, "");
+    const cash = parseFloat(cashStr) || 0;
+    
+    // Find shares owned for the active stock
+    let ownedShares = 0;
+    const holdingRow = document.getElementById(`holding-${currentSelectedSymbol}`);
+    if (holdingRow) {
+        ownedShares = parseInt(holdingRow.getAttribute("data-shares")) || 0;
+    }
+
+    // Toggle button locks
+    const btnBuy = document.getElementById("btn-buy");
+    const btnSell = document.getElementById("btn-sell");
+
+    if (qty > 0) {
+        btnBuy.disabled = cash < estimate;
+        btnSell.disabled = ownedShares < qty;
+        
+        // Visual indicator for lack of cash
+        if (cash < estimate) {
+            document.getElementById("trade-estimate").style.color = "#ef4444";
+        } else {
+            document.getElementById("trade-estimate").style.color = "#f8fafc";
+        }
+    } else {
+        btnBuy.disabled = true;
+        btnSell.disabled = true;
+        document.getElementById("trade-estimate").style.color = "#f8fafc";
     }
 }
 
-// ==========================================================================
-//  TOAST TOASTER MECHANICS
-// ==========================================================================
-function showToast(message, type = "info") {
-    const box = document.getElementById("toast-container");
-    const id = Date.now();
+// 8. Render Portfolio Net Worth indicators
+function renderPortfolioSummary(portfolio) {
+    document.getElementById("net-worth").innerText = `$${portfolio.netWorth.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+    document.getElementById("cash-balance").innerText = `$${portfolio.cash.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+    document.getElementById("asset-value").innerText = `$${portfolio.assetsValue.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+    const plBadge = document.getElementById("total-pl-badge");
+    const sign = portfolio.totalProfitLossPercent >= 0 ? "+" : "";
     
-    const icons = {
-        success: "bx-check-circle",
-        error: "bx-error-circle",
-        info: "bx-info-circle"
-    };
+    plBadge.className = `pl-badge ${portfolio.totalProfitLossPercent >= 0 ? 'positive' : 'negative'}`;
+    plBadge.innerHTML = `<i class="fa-solid fa-caret-${portfolio.totalProfitLossPercent >= 0 ? 'up' : 'down'}"></i> ${sign}${portfolio.totalProfitLossPercent.toFixed(2)}%`;
+}
+
+// 9. Render Portfolio Holdings Table
+function renderHoldings(holdings) {
+    const tbody = document.getElementById("holdings-tbody");
+    if (!holdings || holdings.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-state">
+                <td colspan="7">
+                    <div class="empty-message">
+                        <i class="fa-solid fa-folder-open empty-icon"></i>
+                        <p>No active holdings. Select a stock from the watchlist to buy shares.</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    let html = "";
+    holdings.forEach(holding => {
+        const sign = holding.profitLossPercent >= 0 ? "+" : "";
+        const cellClass = holding.profitLossPercent >= 0 ? "cell-positive" : "cell-negative";
+
+        html += `
+            <tr class="holding-row" id="holding-${holding.symbol}" data-shares="${holding.shares}">
+                <td>
+                    <button class="ticker-badge" onclick="selectStock('${holding.symbol}')">${holding.symbol}</button>
+                    <span class="holding-name">${holding.name}</span>
+                </td>
+                <td><strong>${holding.shares}</strong></td>
+                <td>$${holding.averageBuyPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                <td>$${holding.currentPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                <td>$${holding.currentValue.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                <td class="${cellClass}"><strong>${sign}$${holding.profitLoss.toLocaleString(undefined, {minimumFractionDigits: 2})}</strong> (${sign}${holding.profitLossPercent.toFixed(2)}%)</td>
+                <td style="text-align: right;">
+                    <button class="btn-quick" onclick="quickSell('${holding.symbol}', ${holding.shares})">
+                        <i class="fa-solid fa-circle-minus"></i> Sell All
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+// 10. Render News Feed Cards
+function renderNews(newsList) {
+    const container = document.getElementById("news-container");
+    if (!newsList || newsList.length === 0) {
+        container.innerHTML = `<p style="padding: 20px; text-align: center; color: var(--text-muted);">No market news reports.</p>`;
+        return;
+    }
+
+    let html = "";
+    newsList.forEach(news => {
+        const formattedTime = new Date(news.timestamp).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+        
+        let sentimentBadge = "";
+        if (news.impact > 0) {
+            sentimentBadge = `<span class="news-badge positive"><i class="fa-solid fa-arrow-trend-up"></i> +${news.impact}%</span>`;
+        } else if (news.impact < 0) {
+            sentimentBadge = `<span class="news-badge negative"><i class="fa-solid fa-arrow-trend-down"></i> ${news.impact}%</span>`;
+        } else {
+            sentimentBadge = `<span class="news-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);"><i class="fa-solid fa-minus"></i> Neutral</span>`;
+        }
+
+        html += `
+            <div class="news-item">
+                <div class="news-header">
+                    ${sentimentBadge}
+                    <span class="news-time">${formattedTime}</span>
+                </div>
+                <span class="news-title">${news.title}</span>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+// 11. Render Transaction Logs Ledger
+function renderTransactions(txList) {
+    const container = document.getElementById("transactions-container");
+    if (!txList || txList.length === 0) {
+        container.innerHTML = `<p style="padding:20px; text-align:center; color: var(--text-muted); font-size:12px;">No transactions logged yet.</p>`;
+        return;
+    }
+
+    let html = "";
+    txList.forEach(tx => {
+        const date = new Date(tx.timestamp).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+        const type = tx.type.toUpperCase();
+        
+        let typeClass = "buy";
+        if (type === "SELL" || type === "WITHDRAW") {
+            typeClass = "sell";
+        }
+
+        const isCashOperation = type === "DEPOSIT" || type === "WITHDRAW";
+        const symbolDisplay = isCashOperation ? `<i class="fa-solid fa-money-bill-transfer"></i> CASH` : tx.symbol;
+        const descriptionDisplay = isCashOperation ? 
+            `${type === "DEPOSIT" ? "Deposited" : "Withdrew"} Funds` : 
+            `${tx.quantity} Shares @ $${tx.price.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+        html += `
+            <div class="ledger-item">
+                <div class="ledger-left">
+                    <span class="ledger-type-badge ${typeClass}">${tx.type}</span>
+                    <div class="ledger-details">
+                        <span class="ledger-symbol">${symbolDisplay}</span>
+                        <span class="ledger-time">${date}</span>
+                    </div>
+                </div>
+                <div class="ledger-right">
+                    <span>${descriptionDisplay}</span>
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
+                        Value: $${tx.price.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+// 12. Trade Dispatch services
+function executeTrade(type) {
+    const stock = stockDataMap[currentSelectedSymbol];
+    if (!stock) return;
+
+    const qtyInput = document.getElementById("trade-quantity");
+    const qty = parseInt(qtyInput.value);
+
+    if (isNaN(qty) || qty <= 0) {
+        alert("Please enter a valid shares quantity.");
+        return;
+    }
+
+    const estimate = qty * stock.currentPrice;
+
+    // Call API Trade execution POST
+    const url = `/api/trade?symbol=${stock.symbol}&quantity=${qty}&type=${type}`;
     
+    // Set loading indicator
+    const btn = type === "BUY" ? document.getElementById("btn-buy") : document.getElementById("btn-sell");
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing...`;
+
+    fetch(url, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            btn.innerHTML = origText;
+            if (data.success) {
+                // Success pulse or reset inputs
+                qtyInput.value = 10;
+                refreshAllData();
+            } else {
+                alert("Trade failed: " + data.error);
+                updateTradeEstimate();
+            }
+        })
+        .catch(err => {
+            btn.innerHTML = origText;
+            console.error("Trade request network issue:", err);
+            updateTradeEstimate();
+        });
+}
+
+function quickSell(symbol, shares) {
+    selectStock(symbol);
+    document.getElementById("trade-quantity").value = shares;
+    updateTradeEstimate();
+    
+    // Trigger Sell directly
+    setTimeout(() => {
+        executeTrade("SELL");
+    }, 100);
+}
+
+// 13. Dynamic Chart Updates
+function updateChartData() {
+    if (!mainChart) return;
+
+    if (currentActiveTab === "stock-chart") {
+        const stock = stockDataMap[currentSelectedSymbol];
+        if (!stock || !stock.priceHistory) return;
+
+        // Set line gradient to indigo
+        mainChart.data.datasets[0].borderColor = '#6366f1';
+        mainChart.data.datasets[0].pointBackgroundColor = '#8b5cf6';
+        mainChart.data.datasets[0].backgroundColor = function(context) {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return null;
+            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
+            gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+            return gradient;
+        };
+
+        // Render stock price queue
+        mainChart.data.labels = stock.priceHistory.map((_, i) => `Tick ${i+1}`);
+        mainChart.data.datasets[0].data = stock.priceHistory;
+        mainChart.update('none'); // Update quietly without blocking CPU
+    } else {
+        // Render portfolio net worth history timeline
+        // Fetch value history from page elements or global variables
+        const mockHistory = JSON.parse(localStorage.getItem("apex_history_mock")) || [10000];
+        
+        // Use true net worth history from active portfolio stats
+        // We'll scrape it dynamically or fetch directly
+        fetch("/api/portfolio")
+            .then(res => res.json())
+            .then(portfolio => {
+                if (!portfolio || !portfolio.valueHistory) return;
+
+                // Color gradient Emerald green for portfolios!
+                mainChart.data.datasets[0].borderColor = '#10b981';
+                mainChart.data.datasets[0].pointBackgroundColor = '#059669';
+                mainChart.data.datasets[0].backgroundColor = function(context) {
+                    const chart = context.chart;
+                    const {ctx, chartArea} = chart;
+                    if (!chartArea) return null;
+                    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
+                    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+                    return gradient;
+                };
+
+                mainChart.data.labels = portfolio.valueHistory.map((_, i) => `Tick ${i+1}`);
+                mainChart.data.datasets[0].data = portfolio.valueHistory;
+                mainChart.update('none');
+            });
+    }
+}
+
+// 14. Gamified Achievements Checker
+function checkAchievements(portfolio, txList) {
+    const container = document.getElementById("achievements-container");
+
+    ACHIEVEMENTS.forEach(ach => {
+        if (ach.unlocked) return; // Already unlocked in this session
+
+        let unlockCondition = false;
+        
+        if (ach.id === "first_trade" && txList && txList.some(tx => tx.type === "BUY" || tx.type === "SELL")) {
+            unlockCondition = true;
+        } else if (ach.id === "paper_millionaire" && portfolio.netWorth > 15000) {
+            unlockCondition = true;
+        } else if (ach.id === "risk_taker" && portfolio.cash < 500 && portfolio.assetsValue > 8000) {
+            unlockCondition = true;
+        } else if (ach.id === "whale" && portfolio.holdings) {
+            const hasWhaleShares = portfolio.holdings.some(h => h.shares >= 100);
+            if (hasWhaleShares) unlockCondition = true;
+        }
+
+        if (unlockCondition) {
+            ach.unlocked = true;
+            triggerAchievementNotify(ach.title);
+        }
+    });
+
+    // Render achievements
+    let html = "";
+    ACHIEVEMENTS.forEach(ach => {
+        const activeClass = ach.unlocked ? "unlocked" : "";
+        html += `
+            <div class="achievement-badge ${activeClass}">
+                <div class="achievement-icon-wrap">
+                    <i class="${ach.icon}"></i>
+                </div>
+                <span class="achievement-title">${ach.title}</span>
+                <span class="achievement-desc">${ach.desc}</span>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+// Notification flash overlay when achievement unlocks
+function triggerAchievementNotify(title) {
     const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-    toast.id = `toast-${id}`;
+    toast.style.position = "fixed";
+    toast.style.bottom = "24px";
+    toast.style.right = "24px";
+    toast.style.background = "linear-gradient(135deg, rgba(99, 102, 241, 0.95), rgba(139, 92, 246, 0.95))";
+    toast.style.color = "#ffffff";
+    toast.style.padding = "16px 24px";
+    toast.style.borderRadius = "12px";
+    toast.style.boxShadow = "0 8px 32px rgba(99, 102, 241, 0.4)";
+    toast.style.zIndex = "9999";
+    toast.style.display = "flex";
+    toast.style.alignItems = "center";
+    toast.style.gap = "12px";
+    toast.style.border = "1px solid rgba(255,255,255,0.2)";
+    toast.style.transition = "transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s";
+    toast.style.transform = "translateY(50px)";
+    toast.style.opacity = "0";
+
     toast.innerHTML = `
-        <i class="bx ${icons[type] || 'bx-bell'} toast-icon"></i>
-        <div class="toast-content">
-            <div class="toast-title">${type.toUpperCase()}</div>
-            <div class="toast-msg">${message}</div>
+        <i class="fa-solid fa-trophy" style="font-size: 24px; color: #f59e0b; filter: drop-shadow(0 0 4px rgba(245,158,11,0.5));"></i>
+        <div>
+            <div style="font-size: 10px; font-weight: 800; opacity: 0.8; letter-spacing: 1px;">ACHIEVEMENT UNLOCKED!</div>
+            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">${title}</div>
         </div>
     `;
-    box.appendChild(toast);
+
+    document.body.appendChild(toast);
     
-    // Auto remove after 5 seconds
+    // Animate in
     setTimeout(() => {
-        toast.classList.add("removing");
-        setTimeout(() => toast.remove(), 300);
-    }, 5000);
+        toast.style.transform = "translateY(0)";
+        toast.style.opacity = "1";
+    }, 100);
+
+    // Fade out after 4 seconds
+    setTimeout(() => {
+        toast.style.transform = "translateY(50px)";
+        toast.style.opacity = "0";
+        setTimeout(() => {
+            toast.remove();
+        }, 400);
+    }, 4000);
 }
 
-// ==========================================================================
-//  HELPERS & UTILITY FUNCTIONS
-// ==========================================================================
-function formatMoney(num) {
-    if (num === null || isNaN(num)) return "0.00";
-    return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// 15. Cash Modal Actions
+function openCashModal(type) {
+    currentCashOperation = type;
+    const modal = document.getElementById("cash-modal");
+    const title = document.getElementById("cash-modal-title");
+    const confirmBtn = document.getElementById("btn-modal-confirm");
+    const amountInput = document.getElementById("cash-modal-amount");
+
+    amountInput.value = "";
+    
+    if (type === "DEPOSIT") {
+        title.innerText = "Deposit Virtual Funds";
+        confirmBtn.innerText = "CONFIRM DEPOSIT";
+        confirmBtn.className = "btn-action btn-buy";
+    } else {
+        title.innerText = "Withdraw Virtual Funds";
+        confirmBtn.innerText = "CONFIRM WITHDRAWAL";
+        confirmBtn.className = "btn-action btn-sell";
+    }
+
+    modal.classList.remove("hidden");
 }
 
-function formatVolume(vol) {
-    if (vol >= 1000000) return (vol / 1000000).toFixed(1) + "M";
-    if (vol >= 1000) return (vol / 1000).toFixed(1) + "K";
-    return vol.toString();
+function closeCashModal() {
+    document.getElementById("cash-modal").classList.add("hidden");
 }
 
-function formatMarketCap(cap) {
-    if (cap >= 1e12) return `$${(cap / 1e12).toFixed(2)}T`;
-    if (cap >= 1e9) return `$${(cap / 1e9).toFixed(2)}B`;
-    if (cap >= 1e6) return `$${(cap / 1e6).toFixed(2)}M`;
-    return `$${formatMoney(cap)}`;
+function executeCashOperation() {
+    const amountInput = document.getElementById("cash-modal-amount");
+    const amount = parseFloat(amountInput.value);
+
+    if (isNaN(amount) || amount <= 0) {
+        alert("Please enter a valid amount greater than $0.");
+        return;
+    }
+
+    const endpoint = currentCashOperation === "DEPOSIT" ? "/api/deposit" : "/api/withdraw";
+    const confirmBtn = document.getElementById("btn-modal-confirm");
+    const origText = confirmBtn.innerText;
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing...`;
+
+    fetch(`${endpoint}?amount=${amount}`, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            confirmBtn.disabled = false;
+            confirmBtn.innerText = origText;
+            if (data.success) {
+                closeCashModal();
+                refreshAllData();
+            } else {
+                alert("Operation failed: " + data.error);
+            }
+        })
+        .catch(err => {
+            confirmBtn.disabled = false;
+            confirmBtn.innerText = origText;
+            console.error("Cash operation network error:", err);
+        });
+}
+
+// 16. Custom Stock submission
+function submitCustomStock() {
+    const symbolInput = document.getElementById("new-stock-symbol");
+    const nameInput = document.getElementById("new-stock-name");
+    const priceInput = document.getElementById("new-stock-price");
+
+    let symbol = symbolInput.value.toUpperCase().trim();
+    let name = nameInput.value.trim();
+    let price = parseFloat(priceInput.value);
+
+    if (!symbol || !name || isNaN(price) || price <= 0.01) {
+        alert("Please fill in all fields with valid data. Initial price must be > $0.01");
+        return;
+    }
+
+    // Alphanumeric symbol checking 3-5 chars
+    if (!/^[A-Z0-9]{3,5}$/.test(symbol)) {
+        alert("Stock Ticker Symbol must be 3-5 alphanumeric characters (e.g. AAPL, BTC1).");
+        return;
+    }
+
+    const listBtn = document.getElementById("btn-list-stock");
+    const origText = listBtn.innerHTML;
+    listBtn.disabled = true;
+    listBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Listing Asset...`;
+
+    fetch(`/api/stocks/add?symbol=${symbol}&name=${encodeURIComponent(name)}&price=${price}`, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            listBtn.disabled = false;
+            listBtn.innerHTML = origText;
+            if (data.success) {
+                // Clear fields
+                symbolInput.value = "";
+                nameInput.value = "";
+                priceInput.value = "";
+                
+                alert(`Stock ${symbol} listed successfully! It has been added to the Watchlist.`);
+                refreshAllData().then(() => {
+                    selectStock(symbol); // Focus on new stock
+                });
+            } else {
+                alert("Failed to list stock: " + data.error);
+            }
+        })
+        .catch(err => {
+            listBtn.disabled = false;
+            listBtn.innerHTML = origText;
+            console.error("Listing stock network error:", err);
+        });
 }
