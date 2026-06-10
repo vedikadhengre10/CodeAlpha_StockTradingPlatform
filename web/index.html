@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex Stock Trading Platform | Professional Portfolio Suite</title>
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Live Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- MAIN WELCOME / AUTH SCREEN -->
+    <div id="welcome-screen" class="welcome-screen">
+        <div class="welcome-background"></div>
+        <div class="welcome-container">
+            <div class="brand-showcase">
+                <div class="logo">
+                    <i class="bx bx-trending-up pulse-icon"></i>
+                    <span>APEX TRADING</span>
+                </div>
+                <h1>Elevate Your Financial Strategy</h1>
+                <p>Experience real-time stock simulation, advanced limit order tracking, portfolio diversification mapping, and price alerts in a state-of-the-art trading sandbox.</p>
+                <div class="feature-badges">
+                    <span class="badge"><i class="bx bx-bolt-circle"></i> Live Ticker</span>
+                    <span class="badge"><i class="bx bx-shield-quarter"></i> Zero Risk</span>
+                    <span class="badge"><i class="bx bx-pie-chart-alt-2"></i> Analytics</span>
+                </div>
+            </div>
+
+            <div class="auth-card">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" onclick="switchAuthTab('login', this)">Sign In</button>
+                    <button class="auth-tab" onclick="switchAuthTab('register', this)">Register</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form active" onsubmit="handleLogin(event)">
+                    <h2>Welcome Back</h2>
+                    <p class="subtitle">Enter your credentials to access your trading suite</p>
+                    <div class="input-group">
+                        <label for="login-username">Username</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-user"></i>
+                            <input type="text" id="login-username" required placeholder="demo">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label for="login-password">Password</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-lock-alt"></i>
+                            <input type="password" id="login-password" required placeholder="••••••••">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <span>Sign In</span>
+                        <i class="bx bx-right-arrow-alt"></i>
+                    </button>
+                    <p class="demo-tip">Tip: Use username <strong>demo</strong> and password <strong>demo1234</strong> for quick access.</p>
+                </form>
+
+                <!-- Registration Form -->
+                <form id="register-form" class="auth-form" onsubmit="handleRegister(event)">
+                    <h2>Create Account</h2>
+                    <p class="subtitle">Start your trading journey with virtual paper money</p>
+                    <div class="input-group">
+                        <label for="reg-username">Username</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-user"></i>
+                            <input type="text" id="reg-username" required placeholder="trader1">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-email">Email Address</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-envelope"></i>
+                            <input type="email" id="reg-email" required placeholder="trader1@apex.com">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-password">Password</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-lock-alt"></i>
+                            <input type="password" id="reg-password" required placeholder="At least 4 characters">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-deposit">Initial Paper Deposit ($)</label>
+                        <div class="input-wrapper">
+                            <i class="bx bx-dollar"></i>
+                            <input type="number" id="reg-deposit" value="100000" min="0" placeholder="100,000">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <span>Register & Get Started</span>
+                        <i class="bx bx-user-plus"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP DASHBOARD -->
+    <div id="app-dashboard" class="app-dashboard hidden">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="bx bx-trending-up"></i>
+                    <span>APEX TRADING</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" onclick="switchView('dashboard')">
+                    <i class="bx bxs-dashboard"></i>
+                    <span>Overview</span>
+                </button>
+                <button class="nav-item" onclick="switchView('market')">
+                    <i class="bx bx-line-chart"></i>
+                    <span>Market Terminal</span>
+                </button>
+                <button class="nav-item" onclick="switchView('portfolio')">
+                    <i class="bx bx-wallet"></i>
+                    <span>My Portfolio</span>
+                </button>
+                <button class="nav-item" onclick="switchView('transactions')">
+                    <i class="bx bx-history"></i>
+                    <span>Transactions</span>
+                </button>
+                <button class="nav-item" onclick="switchView('leaderboard')">
+                    <i class="bx bx-trophy"></i>
+                    <span>Leaderboard</span>
+                </button>
+                <button class="nav-item" onclick="switchView('alerts')">
+                    <i class="bx bx-bell"></i>
+                    <span>Alerts & Orders</span>
+                </button>
+                <button class="nav-item" onclick="switchView('settings')">
+                    <i class="bx bx-cog"></i>
+                    <span>Account Suite</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn btn-logout" onclick="handleLogout()">
+                    <i class="bx bx-log-out"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Body -->
+        <main class="main-content">
+            <!-- Top Header Bar -->
+            <header class="topbar">
+                <div class="header-left">
+                    <h1 id="view-title">Dashboard Overview</h1>
+                    <div class="market-badge">
+                        <span class="status-dot pulsing"></span>
+                        <span id="market-status-text">Market Live</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="currency-selector">
+                        <button id="btn-currency-usd" class="currency-btn active" onclick="setCurrency('USD')">USD ($)</button>
+                        <button id="btn-currency-inr" class="currency-btn" onclick="setCurrency('INR')">INR (₹)</button>
+                    </div>
+                    <div class="market-index-card">
+                        <span class="index-label">Apex Index:</span>
+                        <span id="header-market-index" class="index-value">$0.00</span>
+                        <span id="header-market-change" class="index-change positive">+0.00%</span>
+                    </div>
+                    <div class="user-badge">
+                        <div class="avatar">
+                            <i class="bx bx-user-circle"></i>
+                        </div>
+                        <div class="user-info">
+                            <span id="username-display" class="user-name">Demo User</span>
+                            <span id="user-tier-display" class="user-tier">PRO Tier</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- VIEW: DASHBOARD OVERVIEW -->
+            <div id="view-dashboard" class="content-view">
+                <!-- Summary Metrics Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card gold-gradient">
+                        <div class="metric-info">
+                            <h3>Total Portfolio Value</h3>
+                            <p id="dash-total-value">$0.00</p>
+                        </div>
+                        <div class="metric-icon">
+                            <i class="bx bx-wallet-alt"></i>
+                        </div>
+                    </div>
+                    <div class="metric-card blue-gradient">
+                        <div class="metric-info">
+                            <h3>Available Cash</h3>
+                            <p id="dash-cash-balance">$0.00</p>
+                        </div>
+                        <div class="metric-icon">
+                            <i class="bx bx-dollar-circle"></i>
+                        </div>
+                    </div>
+                    <div class="metric-card green-gradient" id="dash-pnl-card">
+                        <div class="metric-info">
+                            <h3>Unrealized P&L</h3>
+                            <p id="dash-unrealized-pnl">$0.00</p>
+                        </div>
+                        <div class="metric-icon">
+                            <i class="bx bx-trending-up"></i>
+                        </div>
+                    </div>
+                    <div class="metric-card purple-gradient">
+                        <div class="metric-info">
+                            <h3>Total Return</h3>
+                            <p id="dash-total-return">0.00%</p>
+                        </div>
+                        <div class="metric-icon">
+                            <i class="bx bx-bar-chart-alt-2"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-columns">
+                    <!-- Column 1: Watchlist and Sector Allocation -->
+                    <div class="column-left">
+                        <div class="card card-watchlist">
+                            <div class="card-header">
+                                <h2><i class="bx bx-star"></i> My Watchlist</h2>
+                                <button class="btn btn-sm btn-outline" onclick="switchView('market')">Market</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-container">
+                                    <table class="watchlist-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>Price</th>
+                                                <th>Change</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="watchlist-body">
+                                            <tr>
+                                                <td colspan="4" class="text-center">Your watchlist is empty. Visit the Market Terminal to add stocks!</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card card-allocation">
+                            <div class="card-header">
+                                <h2><i class="bx bx-pie-chart-alt-2"></i> Sector Allocation</h2>
+                            </div>
+                            <div class="card-body donut-chart-container">
+                                <canvas id="allocationDonutChart"></canvas>
+                                <div id="allocation-empty-msg" class="empty-allocation hidden">
+                                    <i class="bx bx-briefcase-alt-2"></i>
+                                    <p>No holdings yet. Trade stocks to see your portfolio distribution.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Market Activity Tickers -->
+                    <div class="column-right">
+                        <div class="card card-gainers">
+                            <div class="card-header">
+                                <h2><i class="bx bxs-up-arrow-alt text-green"></i> Top Gainers</h2>
+                            </div>
+                            <div class="card-body">
+                                <ul id="dash-top-gainers" class="market-list"></ul>
+                            </div>
+                        </div>
+
+                        <div class="card card-losers">
+                            <div class="card-header">
+                                <h2><i class="bx bxs-down-arrow-alt text-red"></i> Top Losers</h2>
+                            </div>
+                            <div class="card-body">
+                                <ul id="dash-top-losers" class="market-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: MARKET TERMINAL -->
+            <div id="view-market" class="content-view hidden">
+                <div class="market-controls">
+                    <div class="search-bar">
+                        <i class="bx bx-search"></i>
+                        <input type="text" id="market-search" placeholder="Search by symbol, company name, or sector..." oninput="handleMarketSearch()">
+                    </div>
+                    <div class="sector-tabs" id="sector-filter-tabs">
+                        <button class="sector-tab active" onclick="filterMarketSector('ALL')">All Sectors</button>
+                    </div>
+                </div>
+
+                <div class="card card-full">
+                    <div class="card-header">
+                        <h2><i class="bx bx-globe"></i> Active Market Securities</h2>
+                        <div class="market-sentiment-info">
+                            <span>Market Sentiment:</span>
+                            <strong id="market-sentiment-val">Neutral (0.0)</strong>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="market-table">
+                                <thead>
+                                    <tr>
+                                        <th>Symbol</th>
+                                        <th>Company Name</th>
+                                        <th>Sector</th>
+                                        <th class="text-right">Price</th>
+                                        <th class="text-right">Change</th>
+                                        <th class="text-right">Change %</th>
+                                        <th class="text-right">Volume</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="market-stocks-body">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: MY PORTFOLIO -->
+            <div id="view-portfolio" class="content-view hidden">
+                <div class="metrics-grid">
+                    <div class="metric-card gold-gradient">
+                        <div class="metric-info">
+                            <h3>Portfolio Value</h3>
+                            <p id="port-total-value">$0.00</p>
+                        </div>
+                    </div>
+                    <div class="metric-card blue-gradient">
+                        <div class="metric-info">
+                            <h3>Stock Holdings Value</h3>
+                            <p id="port-stock-value">$0.00</p>
+                        </div>
+                    </div>
+                    <div class="metric-card green-gradient" id="port-pnl-card">
+                        <div class="metric-info">
+                            <h3>Unrealized Returns</h3>
+                            <p id="port-unrealized-pnl">$0.00</p>
+                        </div>
+                    </div>
+                    <div class="metric-card purple-gradient">
+                        <div class="metric-info">
+                            <h3>Realized Profit & Loss</h3>
+                            <p id="port-realized-pnl">$0.00</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card card-full">
+                    <div class="card-header">
+                        <h2><i class="bx bx-briefcase"></i> Active Investment Positions</h2>
+                        <span id="portfolio-rating" class="portfolio-rating">Rating: Standard</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="portfolio-table">
+                                <thead>
+                                    <tr>
+                                        <th>Symbol</th>
+                                        <th>Company</th>
+                                        <th class="text-right">Quantity</th>
+                                        <th class="text-right">Avg Cost</th>
+                                        <th class="text-right">Current Price</th>
+                                        <th class="text-right">Current Value</th>
+                                        <th class="text-right">P&L (%)</th>
+                                        <th class="text-center">Quick Trade</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="portfolio-holdings-body">
+                                    <!-- Dynamic holdings -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: TRANSACTIONS HISTORY -->
+            <div id="view-transactions" class="content-view hidden">
+                <div class="transactions-actions">
+                    <button class="btn btn-outline" onclick="triggerAccountAction('save')">
+                        <i class="bx bx-save"></i> Save Portfolio Snapshot
+                    </button>
+                    <button class="btn btn-outline" onclick="triggerAccountAction('export')">
+                        <i class="bx bx-export"></i> Export Transactions (CSV)
+                    </button>
+                    <button class="btn btn-outline" onclick="triggerAccountAction('report')">
+                        <i class="bx bx-file-find"></i> Generate Performance Report
+                    </button>
+                </div>
+
+                <div class="card card-full">
+                    <div class="card-header">
+                        <h2><i class="bx bx-notepad"></i> Historical Logs</h2>
+                        <span class="commission-paid" id="tx-commission-total">Commission Paid: $0.00</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>TxID</th>
+                                        <th>Timestamp</th>
+                                        <th>Symbol</th>
+                                        <th>Type</th>
+                                        <th class="text-right">Quantity</th>
+                                        <th class="text-right">Price</th>
+                                        <th class="text-right">Commission</th>
+                                        <th class="text-right">Total</th>
+                                        <th class="text-right">P&L</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-log-body">
+                                    <!-- Dynamic logs -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: LEADERBOARD -->
+            <div id="view-leaderboard" class="content-view hidden">
+                <!-- podium for top 3 traders -->
+                <div class="podium-container">
+                    <div class="podium-place second">
+                        <div class="medal silver">🥈</div>
+                        <div class="username" id="podium-2-user">No User</div>
+                        <div class="value" id="podium-2-val">$0.00</div>
+                        <div class="pedestal">2</div>
+                    </div>
+                    <div class="podium-place first">
+                        <div class="medal gold">🥇</div>
+                        <div class="username" id="podium-1-user">No User</div>
+                        <div class="value" id="podium-1-val">$0.00</div>
+                        <div class="pedestal">1</div>
+                    </div>
+                    <div class="podium-place third">
+                        <div class="medal bronze">🥉</div>
+                        <div class="username" id="podium-3-user">No User</div>
+                        <div class="value" id="podium-3-val">$0.00</div>
+                        <div class="pedestal">3</div>
+                    </div>
+                </div>
+
+                <div class="card card-full">
+                    <div class="card-header">
+                        <h2><i class="bx bx-bar-chart-alt-2"></i> Ranked Trader Performance</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="leaderboard-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Username</th>
+                                        <th>Tier</th>
+                                        <th class="text-right">Portfolio Balance</th>
+                                        <th class="text-right">Net Profit / Loss</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leaderboard-body">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: ALERTS AND LIMIT ORDERS -->
+            <div id="view-alerts" class="content-view hidden">
+                <div class="alerts-columns">
+                    <!-- Left: Price Alerts -->
+                    <div class="card card-half">
+                        <div class="card-header">
+                            <h2><i class="bx bx-bell"></i> Active Price Alerts</h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="create-alert-form" class="inline-form" onsubmit="handleCreateAlert(event)">
+                                <select id="alert-symbol" required>
+                                    <option value="" disabled selected>Symbol</option>
+                                </select>
+                                <select id="alert-type" required>
+                                    <option value="ABOVE">Above (▲)</option>
+                                    <option value="BELOW">Below (▼)</option>
+                                </select>
+                                <input type="number" id="alert-price" step="0.01" required placeholder="Target Price ($)">
+                                <button type="submit" class="btn btn-primary"><i class="bx bx-plus"></i></button>
+                            </form>
+                            <hr class="card-divider">
+                            <div class="table-container">
+                                <table class="alerts-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>Type</th>
+                                            <th class="text-right">Target Price</th>
+                                            <th class="text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="alerts-list-body">
+                                        <!-- Dynamic list -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Limit Orders -->
+                    <div class="card card-half">
+                        <div class="card-header">
+                            <h2><i class="bx bx-history"></i> Pending Limit Orders</h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="place-order-form" class="inline-form" onsubmit="handlePlaceLimitOrder(event)">
+                                <select id="order-symbol" required>
+                                    <option value="" disabled selected>Symbol</option>
+                                </select>
+                                <select id="order-type" required>
+                                    <option value="BUY">Limit Buy</option>
+                                    <option value="SELL">Limit Sell</option>
+                                </select>
+                                <input type="number" id="order-qty" min="1" required placeholder="Quantity">
+                                <input type="number" id="order-price" step="0.01" required placeholder="Limit Price ($)">
+                                <button type="submit" class="btn btn-primary"><i class="bx bx-plus"></i></button>
+                            </form>
+                            <hr class="card-divider">
+                            <div class="table-container">
+                                <table class="orders-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>Type</th>
+                                            <th class="text-right">Qty</th>
+                                            <th class="text-right">Limit Price</th>
+                                            <th class="text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="orders-list-body">
+                                        <!-- Dynamic list -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: ACCOUNT SETTINGS -->
+            <div id="view-settings" class="content-view hidden">
+                <div class="settings-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="bx bx-briefcase-alt"></i> Funds Management</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="balance-display">
+                                <span>Available Capital:</span>
+                                <strong id="settings-cash-balance">$0.00</strong>
+                            </div>
+                            <div class="funds-actions">
+                                <div class="action-card">
+                                    <h3>Deposit Funds</h3>
+                                    <p>Add paper money balance to invest in assets</p>
+                                    <form onsubmit="handleDeposit(event)">
+                                        <div class="input-wrapper">
+                                            <i id="deposit-currency-icon" class="bx bx-dollar"></i>
+                                            <input type="number" id="deposit-amount" step="any" required placeholder="Amount">
+                                        </div>
+                                        <p id="deposit-limits-text" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; margin-bottom: 8px;">Min: $10, Max: $10,000,000</p>
+                                        <button type="submit" class="btn btn-primary btn-block">Deposit</button>
+                                    </form>
+                                </div>
+                                <div class="action-card">
+                                    <h3>Withdraw Funds</h3>
+                                    <p>Liquidate available cash back to bank</p>
+                                    <form onsubmit="handleWithdraw(event)">
+                                        <div class="input-wrapper">
+                                            <i id="withdraw-currency-icon" class="bx bx-dollar"></i>
+                                            <input type="number" id="withdraw-amount" step="any" required placeholder="Amount">
+                                        </div>
+                                        <p id="withdraw-limits-text" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; margin-bottom: 8px;">Min: $10, Max: $5,000,000</p>
+                                        <button type="submit" class="btn btn-secondary btn-block">Withdraw</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="bx bx-lock-open"></i> Security & Performance</h2>
+                        </div>
+                        <div class="card-body">
+                            <h3>Change Security Password</h3>
+                            <form onsubmit="handleChangePassword(event)" class="settings-form">
+                                <div class="input-group">
+                                    <label for="old-password">Current Password</label>
+                                    <div class="input-wrapper">
+                                        <i class="bx bx-lock"></i>
+                                        <input type="password" id="old-password" required placeholder="••••••••">
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <label for="new-password">New Password</label>
+                                    <div class="input-wrapper">
+                                        <i class="bx bx-lock-open-alt"></i>
+                                        <input type="password" id="new-password" required placeholder="Min 4 characters">
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Change Password</button>
+                            </form>
+
+                            <hr class="card-divider">
+
+                            <h3>Full Performance Report</h3>
+                            <p class="settings-info-text">Generate a comprehensive performance file of your portfolio containing cash status, sector details, and complete transactional graphs.</p>
+                            <button class="btn btn-block btn-outline" onclick="triggerAccountAction('report')">
+                                <i class="bx bx-printer"></i> Generate & Save Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- STOCK DETAIL PANEL / MODAL -->
+    <div id="stock-modal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeStockModal()"></div>
+        <div class="modal-content glass-card">
+            <button class="modal-close" onclick="closeStockModal()"><i class="bx bx-x"></i></button>
+            
+            <div class="modal-body">
+                <!-- Left column: Chart & Info -->
+                <div class="modal-left">
+                    <div class="stock-header-info">
+                        <div class="stock-title">
+                            <h2 id="modal-stock-symbol">AAPL</h2>
+                            <span id="modal-stock-name">Apple Inc.</span>
+                        </div>
+                        <div class="stock-price-display">
+                            <span id="modal-stock-price">$0.00</span>
+                            <span id="modal-stock-change" class="positive">+0.00 (+0.00%)</span>
+                        </div>
+                    </div>
+
+                    <!-- Canvas for ChartJS -->
+                    <div class="chart-container">
+                        <canvas id="stockTrendChart"></canvas>
+                    </div>
+
+                    <div class="stock-quick-stats">
+                        <div class="stat-item"><span>Open Price:</span><strong id="mstat-open">$0.00</strong></div>
+                        <div class="stat-item"><span>Prev Close:</span><strong id="mstat-close">$0.00</strong></div>
+                        <div class="stat-item"><span>Day Low:</span><strong id="mstat-low">$0.00</strong></div>
+                        <div class="stat-item"><span>Day High:</span><strong id="mstat-high">$0.00</strong></div>
+                        <div class="stat-item"><span>52W Low:</span><strong id="mstat-ylow">$0.00</strong></div>
+                        <div class="stat-item"><span>52W High:</span><strong id="mstat-yhigh">$0.00</strong></div>
+                        <div class="stat-item"><span>Volume:</span><strong id="mstat-vol">0</strong></div>
+                        <div class="stat-item"><span>Market Cap:</span><strong id="mstat-cap">$0.00</strong></div>
+                        <div class="stat-item"><span>P/E Ratio:</span><strong id="mstat-pe">0.0</strong></div>
+                        <div class="stat-item"><span>Div. Yield:</span><strong id="mstat-div">0.0%</strong></div>
+                    </div>
+                </div>
+
+                <!-- Right column: Interactive Trade Panel -->
+                <div class="modal-right">
+                    <div class="trade-panel-box">
+                        <div class="trade-panel-tabs">
+                            <button class="trade-tab active" onclick="switchTradeMode('BUY')">Buy Asset</button>
+                            <button class="trade-tab" onclick="switchTradeMode('SELL')">Sell Asset</button>
+                        </div>
+
+                        <div class="trade-panel-body">
+                            <div class="trade-position-info">
+                                <span id="trade-user-capital">Cash Available: $0.00</span>
+                                <span id="trade-user-shares">Shares Owned: 0</span>
+                            </div>
+
+                            <form onsubmit="handleExecuteTrade(event)" class="trade-form">
+                                <div class="input-group">
+                                    <label for="trade-quantity">Quantity of Shares</label>
+                                    <div class="input-wrapper">
+                                        <i class="bx bx-box"></i>
+                                        <input type="number" id="trade-quantity" min="1" required placeholder="0" oninput="calculateTradeTotal()">
+                                    </div>
+                                </div>
+
+                                <div class="trade-calculation">
+                                    <div class="calc-row">
+                                        <span>Estimated Cost:</span>
+                                        <strong id="trade-est-cost">$0.00</strong>
+                                    </div>
+                                    <div class="calc-row">
+                                        <span>Broker Commission:</span>
+                                        <strong id="trade-est-commission">$1.00</strong>
+                                    </div>
+                                    <hr class="divider">
+                                    <div class="calc-row total">
+                                        <span>Total Estimated:</span>
+                                        <strong id="trade-total-est">$0.00</strong>
+                                    </div>
+                                </div>
+
+                                <button type="submit" id="btn-execute-trade" class="btn btn-primary btn-block">Confirm Order</button>
+                            </form>
+
+                            <button id="btn-modal-watchlist" class="btn btn-block btn-outline btn-watchlist-toggle" onclick="toggleWatchlistModal()">
+                                <i class="bx bx-star"></i> Add to Watchlist
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core App JS -->
+    <script src="app.js"></script>
+</body>
+</html>
