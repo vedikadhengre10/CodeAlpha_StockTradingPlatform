@@ -60,6 +60,8 @@ CodeAlpha_StockTradingPlatform/
 
 
 ⚙️ Installation & Setup
+
+
 1. Clone the Repository
 git clone https://github.com/vedikadhengre10/CodeAlpha_StockTradingPlatform.git
 2. Open in IDE
@@ -69,6 +71,7 @@ Eclipse
 3. Run the Application
 
 Compile and execute the project.
+---
 
 📊 Functional Modules
 
@@ -81,7 +84,7 @@ Sell shares
 Portfolio Module
 Portfolio overview
 Asset tracking
-
+---
 
 🎯 Learning Outcomes
 
@@ -89,7 +92,7 @@ Object-Oriented Programming (OOP)
 Database Integration
 Financial Application Development
 Git & GitHub
-
+---
 
 🔮 Future Enhancement
 
@@ -97,20 +100,16 @@ Real-time stock API integration
 User authentication
 Watchlist functionality
 Price alerts
-
-
-🤝 Contributing
-
-Contributions and suggestions are welcome.
+---
 
 👩‍💻 Author
 
 Vedika Dhengre
 
 GitHub: https://github.com/vedikadhengre10
-
+---
 📜 License
 
 This project was developed for educational and internship purposes.
-
+---
 ⭐ If you found this project useful, consider giving it a star on GitHub.
